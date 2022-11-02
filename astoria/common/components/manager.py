@@ -1,15 +1,29 @@
 """State Manager base class."""
 import asyncio
 import logging
+import signal
+import sys
 from abc import ABCMeta, abstractmethod
 from json import JSONDecodeError, loads
-from typing import Callable, Coroutine, Generic, Match, Type, TypeVar
+from signal import SIGHUP, SIGINT, SIGTERM
+from types import FrameType
+from typing import (
+    Callable,
+    Coroutine,
+    Generic,
+    List,
+    Match,
+    Optional,
+    Type,
+    TypeVar,
+)
 
 from pydantic import ValidationError, parse_obj_as
 
+from astoria import __version__
+from astoria.common.config import AstoriaConfig
 from astoria.common.ipc import ManagerMessage, ManagerRequest, RequestResponse
-
-from .component import DataComponent
+from astoria.common.mqtt.wrapper import MQTTWrapper
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,14 +33,86 @@ T = TypeVar("T", bound=ManagerMessage)
 RequestT = TypeVar("RequestT", bound=ManagerRequest)
 
 
-class StateManager(DataComponent, Generic[T], metaclass=ABCMeta):
+class StateManager(Generic[T], metaclass=ABCMeta):
     """
     State Manager.
 
     A process that stores and mutates some state.
     """
 
+    config: AstoriaConfig
     _status: T
+
+    def __init__(self, verbose: bool, config_file: Optional[str]) -> None:
+        self.config = AstoriaConfig.load(config_file)
+
+        self._setup_logging(verbose)
+        self._setup_event_loop()
+        self._setup_mqtt()
+
+        self._init()
+
+    def _setup_logging(self, verbose: bool, *, welcome_message: bool = True) -> None:
+        if verbose:
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format=f"%(asctime)s {self.name} %(name)s %(levelname)s %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        else:
+            logging.basicConfig(
+                level=logging.INFO,
+                format=f"%(asctime)s {self.name} %(levelname)s %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+
+            # Suppress INFO messages from gmqtt
+            logging.getLogger("gmqtt").setLevel(logging.WARNING)
+
+        if welcome_message:
+            LOGGER.info(f"{self.name} v{__version__} - {self.__doc__}")
+
+    def _setup_event_loop(self) -> None:
+        self._stop_event = asyncio.Event()
+
+        loop.add_signal_handler(SIGHUP, self.halt)
+        loop.add_signal_handler(SIGINT, self.halt)
+        loop.add_signal_handler(SIGTERM, self.halt)
+
+    def _setup_mqtt(self) -> None:
+        self._mqtt = MQTTWrapper(
+            self.name,
+            self.config.mqtt,
+            last_will=self.offline_status,
+            dependencies=self.dependencies,
+            no_dependency_event=self._stop_event,
+        )
+
+    def _init(self) -> None:
+        """
+        Initialisation of the data component.
+
+        Called in the constructor of the parent class.
+        """
+        pass
+
+    def _exit(self, signals: signal.Signals, frame_type: FrameType) -> None:
+        sys.exit(0)
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """
+        MQTT client name of the data component.
+
+        This should be unique, as clashes will cause unexpected disconnections.
+        """
+        raise NotImplementedError
+
+    @property
+    def dependencies(self) -> List[str]:
+        """State Managers to depend on."""
+        return []
 
     @property
     def status(self) -> T:
@@ -50,19 +136,30 @@ class StateManager(DataComponent, Generic[T], metaclass=ABCMeta):
         """
         raise NotImplementedError
 
-    @property
-    def last_will(self) -> T:
-        """Last will and testament of the MQTT client."""
-        return self.offline_status
-
-    async def _post_connect(self) -> None:
-        """Overridable callback after MQTT connection."""
-        LOGGER.info("Ready.")
+    async def run(self) -> None:
+        """Entrypoint for the data component."""
+        await self._mqtt.connect()
+        LOGGER.info("Connected to MQTT broker.")
         await self._mqtt.wait_dependencies()
 
-    async def _pre_disconnect(self) -> None:
-        """Change status to offline before disconnecting from the broker."""
+        await self.main()
         self.status = self.offline_status
+        await self._mqtt.disconnect()
+
+    async def wait_loop(self) -> None:
+        """Wait until the data component is halted."""
+        await self._stop_event.wait()
+
+    def halt(self, *, silent: bool = False) -> None:
+        """Stop the component."""
+        if not silent:
+            LOGGER.info("Halting")
+        self._stop_event.set()
+
+    @abstractmethod
+    async def main(self) -> None:
+        """Main method of the data component."""
+        raise NotImplementedError
 
     def _register_request(
         self,
