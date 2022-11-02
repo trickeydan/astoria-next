@@ -4,8 +4,8 @@ import logging
 from pathlib import Path
 from typing import List
 
-from astoria.common.components import StateManager
-from astoria.common.ipc import DiskManagerMessage
+from astoria.common.ipc import DiskState
+from astoria.common.service import Service
 
 from .disk_provider import DiskProvider
 from .static import StaticDiskProvider
@@ -14,7 +14,7 @@ from .udisks import UdisksConnection
 LOGGER = logging.getLogger(__name__)
 
 
-class DiskManager(StateManager[DiskManagerMessage]):
+class DiskManager(Service[DiskState]):
     """Astoria Disk Manager."""
 
     name = "astdiskd"
@@ -29,15 +29,14 @@ class DiskManager(StateManager[DiskManagerMessage]):
             self._providers.append(UdisksConnection(self, notify_coro=self.update_state))
 
     @property
-    def offline_status(self) -> DiskManagerMessage:
+    def offline_state(self) -> DiskState:
         """
         Status to publish when the manager goes offline.
 
         This status should ensure that any other components relying
         on this data go into a safe state.
         """
-        return DiskManagerMessage(
-            status=DiskManagerMessage.Status.STOPPED,
+        return DiskState(
             disks={},
         )
 
@@ -63,7 +62,6 @@ class DiskManager(StateManager[DiskManagerMessage]):
                 else:
                     LOGGER.info(f"Ignoring {mount_path} as it is an ignored mount.")
 
-        self.status = DiskManagerMessage(
-            status=DiskManagerMessage.Status.RUNNING,
+        self.state = DiskState(
             disks=disks,
         )

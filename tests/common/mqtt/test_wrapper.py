@@ -8,7 +8,7 @@ import pytest
 from pydantic import BaseModel
 
 from astoria.common.config.system import MQTTBrokerInfo
-from astoria.common.ipc import ManagerMessage
+from astoria.common.ipc import ServiceMessage
 from astoria.common.mqtt.topic import Topic
 from astoria.common.mqtt.wrapper import MQTTWrapper
 
@@ -66,7 +66,7 @@ def test_wrapper_init_dependencies() -> None:
 
 def test_wrapper_init_last_will() -> None:
     """Test that the wrapper constructor sets up the last will."""
-    lw = ManagerMessage(status="RUNNING")
+    lw = ServiceMessage[StubModel](status="RUNNING", state=None)
     wr = MQTTWrapper("foo", BROKER_INFO, last_will=lw)
     assert wr._last_will is lw
 
@@ -93,7 +93,7 @@ def test_wrapper_last_will_message_null() -> None:
 
 def test_wrapper_last_will_message() -> None:
     """Test that the wrapper gives a valid last will message."""
-    lw = ManagerMessage(status="RUNNING")
+    lw = ServiceMessage[StubModel](status="RUNNING", state=None)
     wr = MQTTWrapper("foo", BROKER_INFO, last_will=lw)
 
     message = wr.last_will_message

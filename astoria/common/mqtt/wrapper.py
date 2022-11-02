@@ -19,7 +19,12 @@ import gmqtt
 from pydantic import BaseModel, ValidationError, parse_obj_as
 
 from astoria.common.config.system import MQTTBrokerInfo
-from astoria.common.ipc import ManagerMessage, ManagerRequest, RequestResponse
+from astoria.common.ipc import (
+    ManagerRequest,
+    RequestResponse,
+    ServiceMessage,
+    ServiceStatus,
+)
 
 from .topic import Topic
 
@@ -254,9 +259,9 @@ class MQTTWrapper:
         """Handle status messages from state managers."""
         manager = match.group(1)
         try:
-            info = parse_obj_as(ManagerMessage, loads(payload))
+            info = parse_obj_as(ServiceMessage, loads(payload))
             LOGGER.debug(f"Status update from {manager}: {info.status}")
-            if info.status is ManagerMessage.Status.RUNNING:
+            if info.status is ServiceStatus.RUNNING:
                 try:
                     self._dependency_events[manager].set()
                 except KeyError:

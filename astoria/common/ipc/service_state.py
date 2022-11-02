@@ -1,30 +1,33 @@
 """Manager Messages."""
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Generic, Optional, TypeVar
 
 from pydantic import BaseModel
+from pydantic.generics import GenericModel
 
-from astoria import __version__
 from astoria.common.code_status import CodeStatus
 from astoria.common.disks import DiskInfo, DiskTypeCalculator, DiskUUID
 from astoria.common.metadata import Metadata
 
+StateT = TypeVar('StateT', bound=BaseModel)
 
-class ManagerMessage(BaseModel):
+
+class ServiceStatus(Enum):
+    """Running Status of the manager daemon."""
+
+    STOPPED = "STOPPED"
+    RUNNING = "RUNNING"
+
+
+class ServiceMessage(GenericModel, Generic[StateT]):
     """Common data that all manager messages output."""
 
-    class Status(Enum):
-        """Running Status of the manager daemon."""
-
-        STOPPED = "STOPPED"
-        RUNNING = "RUNNING"
-
-    status: Status
-    astoria_version: str = __version__
+    status: ServiceStatus
+    state: Optional[StateT]
 
 
-class ProcessManagerMessage(ManagerMessage):
+class ProcessState(BaseModel):
     """
     Status message for Process Manager.
 
@@ -35,7 +38,7 @@ class ProcessManagerMessage(ManagerMessage):
     disk_info: Optional[DiskInfo]
 
 
-class MetadataManagerMessage(ManagerMessage):
+class MetadataState(BaseModel):
     """
     Status message for Metadata Manager.
 
@@ -45,7 +48,7 @@ class MetadataManagerMessage(ManagerMessage):
     metadata: Metadata
 
 
-class DiskManagerMessage(ManagerMessage):
+class DiskState(BaseModel):
     """
     Status message for Disk Manager.
 
@@ -78,7 +81,7 @@ class DiskManagerMessage(ManagerMessage):
         }
 
 
-class WiFiManagerMessage(ManagerMessage):
+class WiFiState(BaseModel):
     """
     Status message for WiFi Manager.
 

@@ -5,9 +5,9 @@ import logging
 from typing import Optional
 
 import click
+from pydantic import BaseModel
 
-from astoria.common.components import StateManager
-from astoria.common.ipc import ManagerMessage
+from astoria.common.service import Service
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +23,13 @@ def main(*, verbose: bool, config_file: Optional[str]) -> None:
     loop.run_until_complete(testd.run())
 
 
-class TestManager(StateManager[ManagerMessage]):
+class TestState(BaseModel):
+    """Test state."""
+
+    data: str = "bees"
+
+
+class TestManager(Service[TestState]):
     """Astoria Test State Manager."""
 
     name = "asttestd"
@@ -33,22 +39,18 @@ class TestManager(StateManager[ManagerMessage]):
         pass
 
     @property
-    def offline_status(self) -> ManagerMessage:
+    def offline_state(self) -> TestState:
         """
         Status to publish when the manager goes offline.
 
         This status should ensure that any other components relying
         on this data go into a safe state.
         """
-        return ManagerMessage(
-            status=ManagerMessage.Status.STOPPED,
-        )
+        return TestState()
 
     async def main(self) -> None:
         """Main routine for asttestd."""
-        self.status = ManagerMessage(
-            status=ManagerMessage.Status.RUNNING,
-        )
+        self.state = TestState(data="extra")
 
         # Wait whilst the program is running.
         await self.wait_loop()

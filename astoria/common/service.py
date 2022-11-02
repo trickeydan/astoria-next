@@ -22,18 +22,23 @@ from pydantic import ValidationError, parse_obj_as
 
 from astoria import __version__
 from astoria.common.config import AstoriaConfig
-from astoria.common.ipc import ManagerMessage, ManagerRequest, RequestResponse
+from astoria.common.ipc import (
+    ManagerRequest,
+    RequestResponse,
+    ServiceMessage,
+    ServiceStatus,
+    StateT,
+)
 from astoria.common.mqtt.wrapper import MQTTWrapper
 
 LOGGER = logging.getLogger(__name__)
 
 loop = asyncio.get_event_loop()
 
-T = TypeVar("T", bound=ManagerMessage)
 RequestT = TypeVar("RequestT", bound=ManagerRequest)
 
 
-class StateManager(Generic[T], metaclass=ABCMeta):
+class Service(Generic[StateT], metaclass=ABCMeta):
     """
     State Manager.
 
@@ -41,7 +46,7 @@ class StateManager(Generic[T], metaclass=ABCMeta):
     """
 
     config: AstoriaConfig
-    _status: T
+    _state: StateT
 
     def __init__(self, verbose: bool, config_file: Optional[str]) -> None:
         self.config = AstoriaConfig.load(config_file)
@@ -83,7 +88,10 @@ class StateManager(Generic[T], metaclass=ABCMeta):
         self._mqtt = MQTTWrapper(
             self.name,
             self.config.mqtt,
-            last_will=self.offline_status,
+            last_will=ServiceMessage(
+                status=ServiceStatus.STOPPED,
+                state=self.offline_state,
+            ),
             dependencies=self.dependencies,
             no_dependency_event=self._stop_event,
         )
@@ -115,21 +123,28 @@ class StateManager(Generic[T], metaclass=ABCMeta):
         return []
 
     @property
-    def status(self) -> T:
+    def state(self) -> StateT:
         """Get the status of the state manager."""
-        return self._status
+        return self._state
 
-    @status.setter
-    def status(self, status: T) -> None:
+    @state.setter
+    def state(self, state: StateT) -> None:
         """Set the status of the state manager."""
-        self._status = status
-        self._mqtt.publish("", status, retain=True)
+        self._state = state
+        self._mqtt.publish(
+            "",
+            ServiceMessage(
+                status=ServiceStatus.RUNNING,
+                state=state,
+            ),
+            retain=True,
+        )
 
     @property
     @abstractmethod
-    def offline_status(self) -> T:
+    def offline_state(self) -> StateT:
         """
-        Status to publish when the manager goes offline.
+        State to publish when the manager goes offline.
 
         This status should ensure that any other components relying
         on this data go into a safe state.
@@ -143,7 +158,7 @@ class StateManager(Generic[T], metaclass=ABCMeta):
         await self._mqtt.wait_dependencies()
 
         await self.main()
-        self.status = self.offline_status
+        self.state = self.offline_state
         await self._mqtt.disconnect()
 
     async def wait_loop(self) -> None:

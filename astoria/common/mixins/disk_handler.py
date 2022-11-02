@@ -7,7 +7,7 @@ from typing import Dict, Match
 
 from astoria.common.config.system import AstoriaConfig
 from astoria.common.disks import DiskInfo, DiskUUID
-from astoria.common.ipc import DiskManagerMessage
+from astoria.common.ipc import DiskState
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class DiskHandlerMixin:
         """Handle disk info messages."""
         if payload:
             try:
-                message = DiskManagerMessage(**loads(payload))
+                message = DiskState(**loads(payload))
 
                 new_set = set(message.disks.keys())
                 old_set = set(self._cur_disks.keys())
