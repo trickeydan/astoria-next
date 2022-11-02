@@ -15,9 +15,9 @@ from typing import IO, Match, Optional
 import click
 from pydantic import ValidationError, parse_obj_as
 
-from astoria.common.components import StateManager
-from astoria.common.ipc import MetadataManagerMessage, WiFiManagerMessage
+from astoria.common.ipc import MetadataState, WiFiState
 from astoria.common.metadata import Metadata
+from astoria.common.service import Service
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def main(*, verbose: bool, config_file: Optional[str]) -> None:
     loop.run_until_complete(wifid.run())
 
 
-class WiFiHotspotDaemon(StateManager[WiFiManagerMessage]):
+class WiFiHotspotDaemon(Service[WiFiState]):
     """
     Hotspot management daemon.
 
@@ -59,15 +59,14 @@ class WiFiHotspotDaemon(StateManager[WiFiManagerMessage]):
             await self._lifecycle.stop_hotspot()
 
     @property
-    def offline_status(self) -> WiFiManagerMessage:
+    def offline_state(self) -> WiFiState:
         """
         Status to publish when the manager goes offline.
 
         This status should ensure that any other components relying
         on this data go into a safe state.
         """
-        return WiFiManagerMessage(
-            status=WiFiManagerMessage.Status.STOPPED,
+        return WiFiState(
             hotspot_running=False,
         )
 
@@ -80,7 +79,7 @@ class WiFiHotspotDaemon(StateManager[WiFiManagerMessage]):
         if payload:
             try:
                 data = loads(payload)
-                metadata_manager_message = parse_obj_as(MetadataManagerMessage, data)
+                metadata_manager_message = parse_obj_as(MetadataState, data)
                 await self.handle_metadata(metadata_manager_message.metadata)
             except ValidationError:
                 LOGGER.warning("Received bad metadata manager message.")
@@ -109,16 +108,14 @@ class WiFiHotspotDaemon(StateManager[WiFiManagerMessage]):
                         self.config.wifi.bridge,
                         self.config.wifi.enable_wpa3,
                     )
-                    self.status = WiFiManagerMessage(
-                        status=WiFiManagerMessage.Status.RUNNING,
+                    self.state = WiFiState(
                         hotspot_running=True,
                     )
                     asyncio.ensure_future(self._lifecycle.run_hotspot())
             else:
                 # Turn it off!
                 await self._lifecycle.stop_hotspot()
-                self.status = WiFiManagerMessage(
-                    status=WiFiManagerMessage.Status.RUNNING,
+                self.state = WiFiState(
                     hotspot_running=False,
                 )
                 self._lifecycle = None
@@ -134,8 +131,7 @@ class WiFiHotspotDaemon(StateManager[WiFiManagerMessage]):
                     self.config.wifi.bridge,
                     self.config.wifi.enable_wpa3,
                 )
-                self.status = WiFiManagerMessage(
-                    status=WiFiManagerMessage.Status.RUNNING,
+                self.state = WiFiState(
                     hotspot_running=True,
                 )
                 asyncio.ensure_future(self._lifecycle.run_hotspot())

@@ -6,15 +6,15 @@ from typing import Dict, List, Optional, Set, Tuple, Type
 
 from pydantic import ValidationError
 
-from astoria.common.components import StateManager
 from astoria.common.disks import DiskInfo, DiskType, DiskUUID
 from astoria.common.ipc import (
-    MetadataManagerMessage,
     MetadataSetManagerRequest,
+    MetadataState,
     RequestResponse,
 )
 from astoria.common.metadata import Metadata
 from astoria.common.mixins.disk_handler import DiskHandlerMixin
+from astoria.common.service import Service
 
 from .metadata_cache import MetadataCache
 from .metadata_disk_lifecycle import (
@@ -26,7 +26,7 @@ from .metadata_disk_lifecycle import (
 LOGGER = logging.getLogger(__name__)
 
 
-class MetadataManager(DiskHandlerMixin, StateManager[MetadataManagerMessage]):
+class MetadataManager(DiskHandlerMixin, Service[MetadataState]):
     """Astoria Metadata State Manager."""
 
     name = "astmetad"
@@ -71,15 +71,14 @@ class MetadataManager(DiskHandlerMixin, StateManager[MetadataManagerMessage]):
         )
 
     @property
-    def offline_status(self) -> MetadataManagerMessage:
+    def offline_state(self) -> MetadataState:
         """
         Status to publish when the manager goes offline.
 
         This status should ensure that any other components relying
         on this data go into a safe state.
         """
-        return MetadataManagerMessage(
-            status=MetadataManagerMessage.Status.STOPPED,
+        return MetadataState(
             metadata=Metadata.init(self.config),
         )
 
@@ -221,7 +220,6 @@ class MetadataManager(DiskHandlerMixin, StateManager[MetadataManagerMessage]):
 
     def update_status(self) -> None:
         """Update the status of the manager."""
-        self.status = MetadataManagerMessage(
-            status=MetadataManagerMessage.Status.RUNNING,
+        self.state = MetadataState(
             metadata=self.get_current_metadata(),
         )

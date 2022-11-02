@@ -1,40 +1,52 @@
-"""
-Data Component base class.
-
-A data component represents the common functionality between
-State Managers and Consumers. It handles connecting to the broker
-and managing the event loop.
-"""
+"""State Manager base class."""
 import asyncio
 import logging
 import signal
 import sys
 from abc import ABCMeta, abstractmethod
+from json import JSONDecodeError, loads
 from signal import SIGHUP, SIGINT, SIGTERM
 from types import FrameType
-from typing import List, Optional
+from typing import (
+    Callable,
+    Coroutine,
+    Generic,
+    List,
+    Match,
+    Optional,
+    Type,
+    TypeVar,
+)
 
-from pydantic import BaseModel
+from pydantic import ValidationError, parse_obj_as
 
 from astoria import __version__
 from astoria.common.config import AstoriaConfig
+from astoria.common.ipc import (
+    ManagerRequest,
+    RequestResponse,
+    ServiceMessage,
+    ServiceStatus,
+    StateT,
+)
 from astoria.common.mqtt.wrapper import MQTTWrapper
 
 LOGGER = logging.getLogger(__name__)
 
 loop = asyncio.get_event_loop()
 
+RequestT = TypeVar("RequestT", bound=ManagerRequest)
 
-class DataComponent(metaclass=ABCMeta):
+
+class Service(Generic[StateT], metaclass=ABCMeta):
     """
-    Data Component base class.
+    State Manager.
 
-    A data component represents the common functionality between
-    State Managers and Consumers. It handles connecting to the broker
-    and managing the event loop.
+    A process that stores and mutates some state.
     """
 
     config: AstoriaConfig
+    _state: StateT
 
     def __init__(self, verbose: bool, config_file: Optional[str]) -> None:
         self.config = AstoriaConfig.load(config_file)
@@ -76,7 +88,10 @@ class DataComponent(metaclass=ABCMeta):
         self._mqtt = MQTTWrapper(
             self.name,
             self.config.mqtt,
-            last_will=self.last_will,
+            last_will=ServiceMessage(
+                status=ServiceStatus.STOPPED,
+                state=self.offline_state,
+            ),
             dependencies=self.dependencies,
             no_dependency_event=self._stop_event,
         )
@@ -108,21 +123,43 @@ class DataComponent(metaclass=ABCMeta):
         return []
 
     @property
-    def last_will(self) -> Optional[BaseModel]:
-        """Last will and testament of the MQTT client."""
-        return None
+    def state(self) -> StateT:
+        """Get the status of the state manager."""
+        return self._state
+
+    @state.setter
+    def state(self, state: StateT) -> None:
+        """Set the status of the state manager."""
+        self._state = state
+        self._mqtt.publish(
+            "",
+            ServiceMessage(
+                status=ServiceStatus.RUNNING,
+                state=state,
+            ),
+            retain=True,
+        )
+
+    @property
+    @abstractmethod
+    def offline_state(self) -> StateT:
+        """
+        State to publish when the manager goes offline.
+
+        This status should ensure that any other components relying
+        on this data go into a safe state.
+        """
+        raise NotImplementedError
 
     async def run(self) -> None:
         """Entrypoint for the data component."""
-        await self._pre_connect()
         await self._mqtt.connect()
-        await self._post_connect()
+        LOGGER.info("Connected to MQTT broker.")
+        await self._mqtt.wait_dependencies()
 
         await self.main()
-
-        await self._pre_disconnect()
+        self.state = self.offline_state
         await self._mqtt.disconnect()
-        await self._post_disconnect()
 
     async def wait_loop(self) -> None:
         """Wait until the data component is halted."""
@@ -139,18 +176,30 @@ class DataComponent(metaclass=ABCMeta):
         """Main method of the data component."""
         raise NotImplementedError
 
-    async def _pre_connect(self) -> None:
-        """Overridable callback before MQTT connection."""
-        pass
+    def _register_request(
+        self,
+        name: str,
+        typ: Type[RequestT],
+        handler: Callable[[RequestT], Coroutine[None, None, RequestResponse]],
+    ) -> None:
+        LOGGER.debug(f"Registering {name} request for {self.name} component")
 
-    async def _pre_disconnect(self) -> None:
-        """Overridable callback before MQTT disconnection."""
-        pass
+        async def _handler(match: Match[str], payload: str) -> None:
+            try:
+                req = parse_obj_as(typ, loads(payload))
+                response = await handler(req)
+                self._mqtt.publish(
+                    f"request/{name}/{req.uuid}",
+                    response,
+                )
+            except JSONDecodeError:
+                LOGGER.warning(
+                    f"Received {name} request, but unable to decode JSON: {payload}",
+                )
+            except ValidationError as e:
+                LOGGER.warning(
+                    f"Received {name} request, but it was not valid: {payload}",
+                )
+                LOGGER.warning(str(e))
 
-    async def _post_connect(self) -> None:
-        """Overridable callback after MQTT connection."""
-        pass
-
-    async def _post_disconnect(self) -> None:
-        """Overridable callback after MQTT disconnection."""
-        pass
+        self._mqtt.subscribe(f"{self.name}/request/{name}", _handler)

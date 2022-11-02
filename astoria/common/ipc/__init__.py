@@ -6,13 +6,6 @@ from .broadcast_event import (
     StartButtonBroadcastEvent,
     UsercodeLogBroadcastEvent,
 )
-from .manager_messages import (
-    DiskManagerMessage,
-    ManagerMessage,
-    MetadataManagerMessage,
-    ProcessManagerMessage,
-    WiFiManagerMessage,
-)
 from .manager_requests import (
     AddStaticDiskRequest,
     ManagerRequest,
@@ -23,23 +16,34 @@ from .manager_requests import (
     UsercodeKillManagerRequest,
     UsercodeRestartManagerRequest,
 )
+from .service_state import (
+    DiskState,
+    MetadataState,
+    ProcessState,
+    ServiceMessage,
+    ServiceStatus,
+    StateT,
+    WiFiState,
+)
 
 __all__ = [
     "AddStaticDiskRequest",
     "BroadcastEvent",
-    "DiskManagerMessage",
+    "DiskState",
     "LogEventSource",
-    "ManagerMessage",
+    "ServiceMessage",
     "ManagerRequest",
-    "MetadataManagerMessage",
+    "MetadataState",
     "MetadataSetManagerRequest",
-    "ProcessManagerMessage",
+    "ProcessState",
     "RemoveAllStaticDisksRequest",
     "RemoveStaticDiskRequest",
     "RequestResponse",
+    "ServiceStatus",
     "StartButtonBroadcastEvent",
+    "StateT",
     "UsercodeKillManagerRequest",
     "UsercodeLogBroadcastEvent",
     "UsercodeRestartManagerRequest",
-    "WiFiManagerMessage",
+    "WiFiState",
 ]

@@ -8,11 +8,10 @@ from typing import Dict, Match, Optional
 from pydantic import parse_obj_as
 
 from astoria.common.code_status import CodeStatus
-from astoria.common.components import StateManager
 from astoria.common.disks import DiskInfo, DiskType, DiskUUID
 from astoria.common.ipc import (
-    MetadataManagerMessage,
-    ProcessManagerMessage,
+    MetadataState,
+    ProcessState,
     RequestResponse,
     UsercodeKillManagerRequest,
     UsercodeLogBroadcastEvent,
@@ -21,6 +20,7 @@ from astoria.common.ipc import (
 from astoria.common.metadata import Metadata
 from astoria.common.mixins import DiskHandlerMixin
 from astoria.common.mqtt import BroadcastHelper
+from astoria.common.service import Service
 
 from .usercode_lifecycle import UsercodeLifecycle
 
@@ -29,7 +29,7 @@ LOGGER = logging.getLogger(__name__)
 loop = asyncio.get_event_loop()
 
 
-class ProcessManager(DiskHandlerMixin, StateManager[ProcessManagerMessage]):
+class ProcessManager(DiskHandlerMixin, Service[ProcessState]):
     """Astoria Process State Manager."""
 
     name = "astprocd"
@@ -60,16 +60,14 @@ class ProcessManager(DiskHandlerMixin, StateManager[ProcessManagerMessage]):
         )
 
     @property
-    def offline_status(self) -> ProcessManagerMessage:
+    def offline_state(self) -> ProcessState:
         """
-        Status to publish when the manager goes offline.
+        State to publish when the manager goes offline.
 
         This status should ensure that any other components relying
         on this data go into a safe state.
         """
-        return ProcessManagerMessage(
-            status=ProcessManagerMessage.Status.STOPPED,
-        )
+        return ProcessState()
 
     async def main(self) -> None:
         """Main routine for astprocd."""
@@ -89,7 +87,7 @@ class ProcessManager(DiskHandlerMixin, StateManager[ProcessManagerMessage]):
         if payload:
             try:
                 data = loads(payload)
-                message = parse_obj_as(MetadataManagerMessage, data)
+                message = parse_obj_as(MetadataState, data)
                 self._recent_metadata = message.metadata
             except JSONDecodeError:
                 LOGGER.warning("Received bad JSON in disk manager message.")
@@ -189,13 +187,11 @@ class ProcessManager(DiskHandlerMixin, StateManager[ProcessManagerMessage]):
             # but the code is starting. Thus we want to inform anyway.
             #
             # This section also updates the status when the lifecycle is cleaned up.
-            self.status = ProcessManagerMessage(
-                status=ProcessManagerMessage.Status.RUNNING,
+            self.state = ProcessState(
                 code_status=code_status,
             )
         else:
-            self.status = ProcessManagerMessage(
-                status=ProcessManagerMessage.Status.RUNNING,
+            self.state = ProcessState(
                 code_status=self._lifecycle.status,
                 disk_info=self._lifecycle.disk_info,
             )

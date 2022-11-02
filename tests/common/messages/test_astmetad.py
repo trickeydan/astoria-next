@@ -1,5 +1,5 @@
 """Tests for astmetad message definitions."""
-from astoria.common.ipc import MetadataManagerMessage
+from astoria.common.ipc import MetadataState
 from astoria.common.metadata import Metadata
 
 
@@ -14,9 +14,8 @@ def test_metadata_manager_message_fields() -> None:
         usercode_entrypoint="robot.py",
     )
 
-    mmm = MetadataManagerMessage(
+    mmm = MetadataState(
         metadata=metadata,
-        status=MetadataManagerMessage.Status.RUNNING,
     )
 
     assert mmm.metadata == metadata

@@ -8,7 +8,7 @@ import pytest
 
 from astoria.common.config.system import AstoriaConfig
 from astoria.common.disks import DiskInfo, DiskType, DiskUUID
-from astoria.common.ipc import DiskManagerMessage
+from astoria.common.ipc import DiskState
 from astoria.common.mixins import DiskHandlerMixin
 
 with Path("tests/data/config/valid.toml").open("rb") as fh:
@@ -48,9 +48,8 @@ def get_disk_manager_message(names: List[str] = []) -> str:
     Note that the path and type have to be the same as the comparison relies
     on set logic using the hash of the object.
     """
-    return DiskManagerMessage(
+    return DiskState(
         disks={DiskUUID(name): Path() for name in names},
-        status=DiskManagerMessage.Status.RUNNING,
     ).json()
 
 
